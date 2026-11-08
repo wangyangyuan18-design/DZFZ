@@ -8,14 +8,30 @@
   (and c (<= 48 c) (<= c 57))
 )
 
-(defun dz:split-suffix (s / i n)
+(defun dz:split-suffix (s / i n tail-start)
+  ;; Find the final digit run. Ignore trailing spaces/newlines and MTEXT paragraph
+  ;; markers when detecting the suffix, but preserve them when rebuilding text.
   (setq n (strlen s)
         i n)
-  (while (and (> i 0) (dz:digit-p (ascii (substr s i 1))))
+  (while (and (> i 0)
+              (member (substr s i 1) '(" " "\\t" "\\r" "\\n")))
+    (setq i (1- i)))
+  (while (and (>= i 2)
+              (= (strcase (substr s (- i 1) 2)) "\\P"))
+    (setq i (- i 2)))
+  (while (and (> i 0)
+              (dz:digit-p (ascii (substr s i 1))))
     (setq i (1- i)))
   (if (= i n)
     nil
-    (list (substr s 1 i) (substr s (1+ i)))))
+    (progn
+      (setq tail-start i)
+      (while (and (< tail-start n)
+                  (dz:digit-p (ascii (substr s (1+ tail-start) 1))))
+        (setq tail-start (1+ tail-start)))
+      (list (substr s 1 i)
+            (substr s (1+ i) (- tail-start i))
+            (substr s (1+ tail-start))))))
 
 (defun dz:format-number (num width / s)
   (setq s (itoa num))
@@ -33,7 +49,7 @@
             value (+ (atoi digits) amount))
       (if (< value 0)
         nil
-        (strcat prefix (dz:format-number value width))))
+        (strcat prefix (dz:format-number value width) (if (caddr parts) (caddr parts) ""))))
     nil))
 
 (defun dz:replace-suffix-number (s value minwidth / parts prefix digits width)
@@ -45,16 +61,33 @@
             width (max (strlen digits) minwidth))
       (if (< value 0)
         nil
-        (strcat prefix (dz:format-number value width))))
+        (strcat prefix (dz:format-number value width) (if (caddr parts) (caddr parts) ""))))
     nil))
 
 (defun dz:get-text (ename / obj val ed typ chunks pair)
-(setq ed (entget ename) typ (cdr (assoc 0 ed)))
-(if (member typ '("TEXT" "MTEXT"))
-(progn (setq obj (vlax-ename->vla-object ename))
-(setq val (vl-catch-all-apply 'vlax-get-property (list obj 'TextString)))
-(if (vl-catch-all-error-p val)
-(if (= typ "MTEXT") (progn (setq chunks "") (foreach pair ed (if (member (car pair) '(3 1)) (setq chunks (strcat chunks (cdr pair))))) chunks) (cdr (assoc 1 ed))) val)) nil))
+  (setq ed (entget ename)
+        typ (cdr (assoc 0 ed)))
+  (if (member typ '("TEXT" "MTEXT"))
+    (progn
+      (setq obj (vlax-ename->vla-object ename))
+      (setq val (vl-catch-all-apply 'vlax-get-property (list obj 'TextString)))
+      (if (or (vl-catch-all-error-p val) (null val))
+        (if (= typ "MTEXT")
+          (progn
+            (setq chunks "")
+            ;; MTEXT content may be split across DXF group 3 and group 1.
+            (foreach pair (reverse ed)
+              (if (member (car pair) '(1 3))
+                (setq chunks (strcat chunks (cdr pair))))
+            )
+            chunks)
+          (cdr (assoc 1 ed)))
+        (progn
+          ;; Some ZWCAD builds return TextString as a VARIANT.
+          (if (= (type val) 'VARIANT)
+            (setq val (vlax-variant-value val)))
+          (if (= (type val) 'STR) val nil))))
+    nil))
 (defun dz:set-text (ename newtext / obj result)
 (setq obj (vlax-ename->vla-object ename))
 (setq result (vl-catch-all-apply 'vlax-put-property (list obj 'TextString newtext)))
