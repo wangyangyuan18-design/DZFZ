@@ -145,12 +145,13 @@
   (setq *error* olderr)
   (princ))
 
-(defun c:DZXG (/ *error* olderr en ed txt seed seedwidth parts count newtxt newed stop)
+(defun c:DZXG (/ *error* olderr en ed txt seed seedwidth parts count newtxt newed stop step)
   (setq olderr *error*
         seed nil
         seedwidth 0
         count 0
-        stop nil)
+        stop nil
+        step 1)
   (defun *error* (msg)
     (if (and msg
              (not (wcmatch (strcase msg) "*CANCEL*,*QUIT*,*BREAK*")))
@@ -158,6 +159,8 @@
     (setq *error* olderr)
     (princ))
   (prompt "\nDZXG - 按点击顺序递增修改文字")
+  (setq step (getint "\n输入递增步长 <1>："))
+  (if (or (null step) (= step 0)) (setq step 1))
   (prompt "\n依次点击 TEXT/MTEXT；第一个有效对象作为递增起点，按 ESC 结束。")
   (while (and (not stop) (setq en (car (entsel "\n选择下一个文字对象："))))
     (if (dz:valid-entity-p en)
@@ -177,7 +180,7 @@
               (setq stop T)))
           (if parts
             (progn
-              (setq newtxt (dz:replace-suffix-number txt (+ seed count) seedwidth))
+              (setq newtxt (dz:replace-suffix-number txt (+ seed (* count step)) seedwidth))
               (setq newed (dz:set-text-data ed newtxt))
               (if (and newtxt (entmod newed))
                 (progn
