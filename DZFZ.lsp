@@ -36,6 +36,18 @@
         (strcat prefix (dz:format-number value width))))
     nil))
 
+(defun dz:replace-suffix-number (s value minwidth / parts prefix digits width)
+  (setq parts (dz:split-suffix s))
+  (if parts
+    (progn
+      (setq prefix (car parts)
+            digits (cadr parts)
+            width (max (strlen digits) minwidth))
+      (if (< value 0)
+        nil
+        (strcat prefix (dz:format-number value width))))
+    nil))
+
 (defun dz:get-text (edata / typ item)
   (setq typ (cdr (assoc 0 edata)))
   (if (member typ '("TEXT" "MTEXT"))
@@ -133,10 +145,12 @@
   (setq *error* olderr)
   (princ))
 
-(defun c:DZXG (/ *error* olderr en ed txt seed parts count newtxt newed)
+(defun c:DZXG (/ *error* olderr en ed txt seed seedwidth parts count newtxt newed stop)
   (setq olderr *error*
         seed nil
-        count 0)
+        seedwidth 0
+        count 0
+        stop nil)
   (defun *error* (msg)
     (if (and msg
              (not (wcmatch (strcase msg) "*CANCEL*,*QUIT*,*BREAK*")))
@@ -144,32 +158,36 @@
     (setq *error* olderr)
     (princ))
   (prompt "\nDZXG - 按点击顺序递增修改文字")
-  (prompt "\n依次点击 TEXT/MTEXT；第一个对象作为递增起点，按 ESC 结束。")
-  (while (setq en (car (entsel "\n选择下一个文字对象：")))
+  (prompt "\n依次点击 TEXT/MTEXT；第一个有效对象作为递增起点，按 ESC 结束。")
+  (while (and (not stop) (setq en (car (entsel "\n选择下一个文字对象："))))
     (if (dz:valid-entity-p en)
       (progn
         (setq ed (entget en)
-              txt (dz:get-text ed))
+              txt (dz:get-text ed)
+              parts (dz:split-suffix txt))
         (if (= count 0)
-          (progn
-            (setq parts (dz:split-suffix txt))
-            (if parts
-              (setq seed (atoi (cadr parts)))
-              (prompt "\n第一个对象末尾没有连续数字；请重新启动 DZXG 并选择有效文字。")))
-          (if seed
+          (if parts
             (progn
-              (setq newtxt (dz:increment-text txt count))
-              (if newtxt
+              (setq seed (atoi (cadr parts))
+                    seedwidth (strlen (cadr parts))
+                    count 1)
+              (prompt "\n已记录起始编号；继续点击后续文字。"))
+            (progn
+              (prompt "\n第一个对象末尾没有连续数字，DZXG 已停止。")
+              (setq stop T)))
+          (if parts
+            (progn
+              (setq newtxt (dz:replace-suffix-number txt (+ seed count) seedwidth))
+              (setq newed (dz:set-text-data ed newtxt))
+              (if (and newtxt (entmod newed))
                 (progn
-                  (setq newed (dz:set-text-data ed newtxt))
-                  (if (entmod newed)
-                    (progn (entupd en) (prompt (strcat "\n已修改为：" newtxt)))
-                    (prompt "\n修改失败。")))
-                (prompt "\n该文字末尾没有连续数字，已跳过。"))))
-        (if (or (= count 0) seed)
-          (setq count (1+ count))))
+                  (entupd en)
+                  (prompt (strcat "\n已修改为：" newtxt))
+                  (setq count (1+ count)))
+                (prompt "\n修改失败；该对象未计入递增序列。")))
+            (prompt "\n该文字末尾没有连续数字，已跳过。")))
       (dz:report-invalid en)))
-  (prompt (strcat "\nDZXG 结束。本次处理对象数：" (itoa count)))
+  (prompt (strcat "\nDZXG 结束。本次有效对象数：" (itoa count)))
   (setq *error* olderr)
   (princ))
 
