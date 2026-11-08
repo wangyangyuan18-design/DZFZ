@@ -48,41 +48,27 @@
         (strcat prefix (dz:format-number value width))))
     nil))
 
-(defun dz:get-text (edata / typ item)
-  (setq typ (cdr (assoc 0 edata)))
-  (if (member typ '("TEXT" "MTEXT"))
-    (cdr (assoc 1 edata))
-    nil))
+(defun dz:get-text (ename / obj val ed typ chunks pair)
+(setq ed (entget ename) typ (cdr (assoc 0 ed)))
+(if (member typ '("TEXT" "MTEXT"))
+(progn (setq obj (vlax-ename->vla-object ename))
+(setq val (vl-catch-all-apply 'vlax-get-property (list obj 'TextString)))
+(if (vl-catch-all-error-p val)
+(if (= typ "MTEXT") (progn (setq chunks "") (foreach pair ed (if (member (car pair) '(3 1)) (setq chunks (strcat chunks (cdr pair))))) chunks) (cdr (assoc 1 ed))) val)) nil))
+(defun dz:set-text (ename newtext / obj result)
+(setq obj (vlax-ename->vla-object ename))
+(setq result (vl-catch-all-apply 'vlax-put-property (list obj 'TextString newtext)))
+(not (vl-catch-all-error-p result)))
+(defun dz:copy-text-entity (ename basept targetpt newtext / obj cp p1 p2 result)
+(setq obj (vlax-ename->vla-object ename) p1 (trans basept 1 0) p2 (trans targetpt 1 0))
+(setq result (vl-catch-all-apply 'vla-copy (list obj)))
+(if (vl-catch-all-error-p result) nil
+(progn (setq cp result)
+(setq result (vl-catch-all-apply 'vla-move (list cp (vlax-3d-point p1) (vlax-3d-point p2))))
+(if (vl-catch-all-error-p result) (progn (vl-catch-all-apply 'vla-delete (list cp)) nil)
+(progn (setq result (vl-catch-all-apply 'vlax-put-property (list cp 'TextString newtext)))
+(if (vl-catch-all-error-p result) (progn (vl-catch-all-apply 'vla-delete (list cp)) nil) T))))))
 
-(defun dz:set-text-data (edata newtext / out done pair)
-  (setq out '()
-        done nil)
-  (foreach pair edata
-    (if (= (car pair) 1)
-      (if (not done)
-        (progn
-          (setq out (cons (cons 1 newtext) out))
-          (setq done T)))
-      (setq out (cons pair out))))
-  (if done (reverse out) nil))
-
-(defun dz:move-data (edata dx dy dzv / out pair val)
-  (setq out '())
-  (foreach pair edata
-    (if (member (car pair) '(10 11))
-      (progn
-        (setq val (cdr pair))
-        (if (and (listp val) (>= (length val) 2))
-          (setq out
-            (cons
-              (cons (car pair)
-                (list (+ (car val) dx)
-                      (+ (cadr val) dy)
-                      (+ (if (caddr val) (caddr val) 0.0) dzv)))
-              out))
-          (setq out (cons pair out))))
-      (setq out (cons pair out))))
-  (reverse out))
 
 (defun dz:valid-entity-p (ename / ed typ)
   (and ename
@@ -91,108 +77,56 @@
        (member typ '("TEXT" "MTEXT"))))
 
 (defun dz:report-invalid (ename / ed typ)
-  (if (and ename (setq ed (entget ename)))
-    (setq typ (cdr (assoc 0 ed)))
-    (setq typ "未知对象"))
-  (prompt (strcat "\n不支持的对象：" typ "。请选择 TEXT 或 MTEXT。")))
+(if (and ename (setq ed (entget ename))) (setq typ (cdr (assoc 0 ed))) (setq typ "Unknown object"))
+(prompt (strcat "\nUnsupported object: " typ ". Select TEXT or MTEXT.")))
 
-(defun c:DZFZ (/ *error* olderr en ed txt parts base pt step idx newtxt moved clone)
-  (setq olderr *error*)
-  (defun *error* (msg)
-    (if (and msg
-             (not (wcmatch (strcase msg) "*CANCEL*,*QUIT*,*BREAK*")))
-      (prompt (strcat "\nDZFZ 错误：" msg)))
-    (setq *error* olderr)
-    (princ))
-  (prompt "\nDZFZ - 文字递增复制")
-  (setq en (car (entsel "\n选择作为模板的 TEXT/MTEXT：")))
-  (cond
-    ((not en) (prompt "\n未选择对象，命令结束。"))
-    ((not (dz:valid-entity-p en)) (dz:report-invalid en))
-    (T
-      (setq ed (entget en)
-            txt (dz:get-text ed)
-            parts (dz:split-suffix txt))
-      (if (not parts)
-        (prompt "\n模板文字末尾没有连续数字，无法递增。")
-        (progn
-          (setq base (getpoint "\n指定复制基点："))
-          (if base
-            (progn
-              (setq step (getint "\n输入递增步长 <1>："))
-              (if (or (null step) (= step 0)) (setq step 1))
-              (setq idx 1)
-              (prompt "\n逐次点击目标位置放置副本，按 ESC 结束。")
-              (while (setq pt (getpoint "\n指定下一个副本位置："))
-                (setq newtxt (dz:increment-text txt (* idx step)))
-                (if newtxt
-                  (progn
-                    (setq moved (dz:move-data ed
-                                      (- (car pt) (car base))
-                                      (- (cadr pt) (cadr base))
-                                      (- (if (caddr pt) (caddr pt) 0.0)
-                                         (if (caddr base) (caddr base) 0.0))))
-                    (setq clone (dz:set-text-data moved newtxt))
-                    ;; Remove entity identity and ownership data before entmakex.
-                    (setq clone
-                      (vl-remove-if
-                        '(lambda (x) (member (car x) '(-1 5 330 360)))
-                        clone))
-                    (if (entmakex clone)
-                      (setq idx (1+ idx))
-                      (prompt "\n副本创建失败，已跳过该位置。")))
-                  (prompt "\n数字递增结果无效，已停止放置。")))))))))
-  (setq *error* olderr)
-  (princ))
 
-(defun c:DZXG (/ *error* olderr en ed txt seed seedwidth parts count newtxt newed stop step)
-  (setq olderr *error*
-        seed nil
-        seedwidth 0
-        count 0
-        stop nil
-        step 1)
-  (defun *error* (msg)
-    (if (and msg
-             (not (wcmatch (strcase msg) "*CANCEL*,*QUIT*,*BREAK*")))
-      (prompt (strcat "\nDZXG 错误：" msg)))
-    (setq *error* olderr)
-    (princ))
-  (prompt "\nDZXG - 按点击顺序递增修改文字")
-  (setq step (getint "\n输入递增步长 <1>："))
-  (if (or (null step) (= step 0)) (setq step 1))
-  (prompt "\n依次点击 TEXT/MTEXT；第一个有效对象作为递增起点，按 ESC 结束。")
-  (while (and (not stop) (setq en (car (entsel "\n选择下一个文字对象："))))
-    (if (dz:valid-entity-p en)
-      (progn
-        (setq ed (entget en)
-              txt (dz:get-text ed)
-              parts (dz:split-suffix txt))
-        (if (= count 0)
-          (if parts
-            (progn
-              (setq seed (atoi (cadr parts))
-                    seedwidth (strlen (cadr parts))
-                    count 1)
-              (prompt "\n已记录起始编号；继续点击后续文字。"))
-            (progn
-              (prompt "\n第一个对象末尾没有连续数字，DZXG 已停止。")
-              (setq stop T)))
-          (if parts
-            (progn
-              (setq newtxt (dz:replace-suffix-number txt (+ seed (* count step)) seedwidth))
-              (setq newed (dz:set-text-data ed newtxt))
-              (if (and newtxt (entmod newed))
-                (progn
-                  (entupd en)
-                  (prompt (strcat "\n已修改为：" newtxt))
-                  (setq count (1+ count)))
-                (prompt "\n修改失败；该对象未计入递增序列。")))
-            (prompt "\n该文字末尾没有连续数字，已跳过。")))
-      (dz:report-invalid en)))
-  (prompt (strcat "\nDZXG 结束。本次有效对象数：" (itoa count)))
-  (setq *error* olderr)
-  (princ)))
+(defun c:DZFZ (/ *error* olderr en txt parts base pt step idx newtxt)
+(setq olderr *error*)
+(defun *error* (msg) (if (and msg (not (wcmatch (strcase msg) "*CANCEL*,*QUIT*,*BREAK*"))) (prompt (strcat "\nDZFZ error: " msg))) (setq *error* olderr) (princ))
+(prompt "\nDZFZ - Incremental text copy")
+(setq en (car (entsel "\nSelect source TEXT/MTEXT: ")))
+(cond
+((not en) (prompt "\nNo object selected."))
+((not (dz:valid-entity-p en)) (dz:report-invalid en))
+(T (setq txt (dz:get-text en) parts (dz:split-suffix txt))
+(if (not parts) (prompt "\nNo trailing digits found.")
+(progn (setq base (getpoint "\nSpecify copy base point: "))
+(if base (progn
+(setq step (getint "\nIncrement step <1>: "))
+(if (or (null step) (= step 0)) (setq step 1))
+(setq idx 1)
+(prompt "\nClick each destination to place a copy. Press ESC to finish.")
+(while (setq pt (getpoint "\nSpecify next copy location: "))
+(setq newtxt (dz:increment-text txt (* idx step)))
+(if newtxt (if (dz:copy-text-entity en base pt newtxt) (setq idx (1+ idx)) (prompt "\nCopy failed; skipped.")) (prompt "\nInvalid increment; stopping.")))))))))
+(setq *error* olderr)
+(princ))
 
-(prompt "\nDZFZ/DZXG 已加载。输入 DZFZ 或 DZXG 启动。")
+
+(defun c:DZXG (/ *error* olderr en txt seed seedwidth parts count newtxt stop step)
+(setq olderr *error* seed nil seedwidth 0 count 0 stop nil step 1)
+(defun *error* (msg) (if (and msg (not (wcmatch (strcase msg) "*CANCEL*,*QUIT*,*BREAK*"))) (prompt (strcat "\nDZXG error: " msg))) (setq *error* olderr) (princ))
+(prompt "\nDZXG - Increment text in pick order")
+(setq step (getint "\nIncrement step <1>: "))
+(if (or (null step) (= step 0)) (setq step 1))
+(prompt "\nPick TEXT/MTEXT in order. First valid object is seed. Press ESC to finish.")
+(while (and (not stop) (setq en (car (entsel "\nSelect next text object: "))))
+(if (dz:valid-entity-p en)
+(progn (setq txt (dz:get-text en) parts (dz:split-suffix txt))
+(if (= count 0)
+(if parts (progn (setq seed (atoi (cadr parts)) seedwidth (strlen (cadr parts)) count 1) (prompt "\nSeed recorded."))
+(progn (prompt "\nFirst object has no trailing digits. Stopped.") (setq stop T)))
+(if parts
+(progn (setq newtxt (dz:replace-suffix-number txt (+ seed (* count step)) seedwidth))
+(if (and newtxt (dz:set-text en newtxt)) (progn (entupd en) (prompt (strcat "\nUpdated: " newtxt)) (setq count (1+ count))) (prompt "\nUpdate failed.")))
+(prompt "\nNo trailing digits; skipped."))))
+(dz:report-invalid en)))
+(prompt (strcat "\nDZXG finished. Valid object count: " (itoa count)))
+(setq *error* olderr)
+(princ))
+
+
+
+(prompt "\nDZFZ/DZXG loaded. Type DZFZ or DZXG to start.")
 (princ)
