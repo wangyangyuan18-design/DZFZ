@@ -1,0 +1,28 @@
+name: Package DZFZ LISP
+on:
+  push:
+    branches: [main]
+    paths:
+      - "DZFZ.lsp"
+      - "README.md"
+      - ".github/workflows/release.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create ZIP package
+        run: |
+          mkdir -p dist/DZFZ
+          cp DZFZ.lsp README.md dist/DZFZ/
+          cd dist
+          zip -r DZFZ.zip DZFZ
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DZFZ
+          path: dist/DZFZ.zip
+          if-no-files-found: error
+          retention-days: 30
