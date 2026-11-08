@@ -8,29 +8,26 @@
   (and c (<= 48 c) (<= c 57))
 )
 
-(defun dz:split-suffix (s / i n tail-start)
-  ;; Find the final digit run. Ignore trailing spaces/newlines and MTEXT paragraph
-  ;; markers when detecting the suffix, but preserve them when rebuilding text.
-  (setq n (strlen s)
-        i n)
-  (while (and (> i 0)
-              (member (substr s i 1) '(" " "\\t" "\\r" "\\n")))
-    (setq i (1- i)))
-  (while (and (>= i 2)
-              (= (strcase (substr s (- i 1) 2)) "\\P"))
-    (setq i (- i 2)))
-  (while (and (> i 0)
-              (dz:digit-p (ascii (substr s i 1))))
-    (setq i (1- i)))
-  (setq tail-start i)
-  (while (and (> i 0)
-              (dz:digit-p (ascii (substr s i 1))))
-    (setq i (1- i)))
-  (if (= i tail-start)
+(defun dz:split-suffix (s / i n digit-end)
+  ;; Locate the final digit sequence, allowing trailing spaces after it.
+  (if (not (= (type s) 'STR))
     nil
-    (list (substr s 1 i)
-          (substr s (1+ i) (- tail-start i))
-          (substr s (1+ tail-start)))))
+    (progn
+      (setq n (strlen s)
+            i n)
+      ;; Ignore trailing ordinary spaces while locating the number.
+      (while (and (> i 0) (= (substr s i 1) " "))
+        (setq i (1- i)))
+      (setq digit-end i)
+      ;; Walk backward over the final consecutive digits exactly once.
+      (while (and (> i 0)
+                  (dz:digit-p (ascii (substr s i 1))))
+        (setq i (1- i)))
+      (if (= i digit-end)
+        nil
+        (list (substr s 1 i)
+              (substr s (1+ i) (- digit-end i))
+              (substr s (1+ digit-end))))))
 
 (defun dz:format-number (num width / s)
   (setq s (itoa num))
