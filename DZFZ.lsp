@@ -141,7 +141,7 @@
                     (if (entmakex clone)
                       (setq idx (1+ idx))
                       (prompt "\n副本创建失败，已跳过该位置。")))
-                  (prompt "\n数字递增结果无效，已停止放置。")))))))
+                  (prompt "\n数字递增结果无效，已停止放置。")))))))))
   (setq *error* olderr)
   (princ))
 
@@ -192,7 +192,7 @@
       (dz:report-invalid en)))
   (prompt (strcat "\nDZXG 结束。本次有效对象数：" (itoa count)))
   (setq *error* olderr)
-  (princ))
+  (princ)))
 
 (prompt "\nDZFZ/DZXG 已加载。输入 DZFZ 或 DZXG 启动。")
 (princ)
