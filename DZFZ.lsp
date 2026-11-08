@@ -96,7 +96,7 @@
 (setq step (getint "\nIncrement step <1>: "))
 (if (or (null step) (= step 0)) (setq step 1))
 (setq idx 1)
-(prompt "\nClick each destination to place a copy. Press ESC to finish.")
+(prompt "\nClick each destination to place a copy. Press ENTER to finish.")
 (while (setq pt (getpoint "\nSpecify next copy location: "))
 (setq newtxt (dz:increment-text txt (* idx step)))
 (if newtxt (if (dz:copy-text-entity en base pt newtxt) (setq idx (1+ idx)) (prompt "\nCopy failed; skipped.")) (prompt "\nInvalid increment; stopping.")))))))))
