@@ -27,7 +27,7 @@
         nil
         (list (substr s 1 i)
               (substr s (1+ i) (- digit-end i))
-              (substr s (1+ digit-end))))))
+              (substr s (1+ digit-end)))))))
 
 (defun dz:format-number (num width / s)
   (setq s (itoa num))
